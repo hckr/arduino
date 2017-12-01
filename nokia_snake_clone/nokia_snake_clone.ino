@@ -7,7 +7,7 @@
 // Adafruit_PCD8544 display = Adafruit_PCD8544(7, 6, 5, 4, 3);
 
 // Working with my display:
-Adafruit_PCD8544 display = Adafruit_PCD8544(3, 4, 5, 7, 6);
+Adafruit_PCD8544 display = Adafruit_PCD8544(8, 4, 5, 9, 6);
 
 #define BOARD_MARGIN_LEFT 2
 #define BOARD_MARGIN_TOP 7
@@ -19,18 +19,25 @@ Adafruit_PCD8544 display = Adafruit_PCD8544(3, 4, 5, 7, 6);
 // only from right and bottom:
 #define SNAKE_CONNECTION_MARGIN 1
 
+#define PIN_LEFT 7
+#define PIN_UP 1
+#define PIN_RIGHT 2
+#define PIN_DOWN 3
+
 int head_row = 4;
-int head_col = 0;
+int head_col = 4;
 
 int tail_row = head_row;
-int tail_col = head_col;
+int tail_col = 0; // see setup()
 
 enum Direction {
   LEFT,
   UP,
   RIGHT,
   DOWN
-} snake_direction = RIGHT;
+};
+
+volatile Direction snake_direction = RIGHT;
 
 int last_update = 0;
 int score = 0;
@@ -60,24 +67,43 @@ struct BoardField& get_board_field(const int &row, const int &col) {
   return board[row][col];
 }
 
-bool is_part_of_snake(const int &row, const int &col) {
-  const auto &f = get_board_field(row, col);
-  return f.type == SNAKE;
-}
-
-void draw_snake() {
+void draw_snake_and_food() {
   int pos_y = BOARD_MARGIN_TOP;
   for (int row = 0; row < BOARD_ROWS; ++row) {
     int pos_x = BOARD_MARGIN_LEFT;
     for (int col = 0; col < BOARD_COLS; ++col) {
-        if (is_part_of_snake(row, col)) {
-          display.fillRect(
-            pos_x,
-            pos_y,
-            SNAKE_FRAGMENT_SIZE,
-            SNAKE_FRAGMENT_SIZE,
-            BLACK
-          );
+        switch (get_board_field(row, col).type) {
+          case SNAKE:
+            display.fillRect(
+              pos_x,
+              pos_y,
+              SNAKE_FRAGMENT_SIZE,
+              SNAKE_FRAGMENT_SIZE,
+              BLACK
+            );
+            break;
+          case FOOD:
+            display.drawPixel(
+              pos_x + 1,
+              pos_y,
+              BLACK
+            );
+            display.drawPixel(
+              pos_x,
+              pos_y + 1,
+              BLACK
+            );
+            display.drawPixel(
+              pos_x + 2,
+              pos_y + 1,
+              BLACK
+            );
+            display.drawPixel(
+              pos_x + 1,
+              pos_y + 2,
+              BLACK
+            );
+            break;
         }
         pos_x += SNAKE_FRAGMENT_SIZE + SNAKE_CONNECTION_MARGIN;
     }
@@ -90,7 +116,8 @@ void draw_connections() {
       curr_col = tail_col;
   while (1) {
     const auto &curr = get_board_field(curr_row, curr_col);
-    if (curr.type != SNAKE) {
+    const auto &next = get_board_field(curr.next_row, curr.next_col);
+    if (curr.type != SNAKE || next.type != SNAKE) {
       break;
     }
     const auto row_diff = curr.next_row - curr_row;
@@ -133,6 +160,19 @@ void draw_connections() {
   }
 }
 
+void place_food() {
+  do {
+    int food_row = random(0, BOARD_ROWS),
+        food_col = random(0, BOARD_COLS);
+
+    auto &food = get_board_field(food_row, food_col);
+    if (food.type == EMPTY) {
+      food.type = FOOD;
+      break;
+    }
+  } while (1);
+}
+
 void step() {
   int new_row = head_row,
       new_col = head_col;
@@ -173,7 +213,9 @@ void step() {
       head_col = new_col;
   }
 
-  if (!grow) {
+  if (grow) {
+    place_food();
+  } else {
     struct BoardField& old_tail = get_board_field(tail_row, tail_col);
     tail_row = old_tail.next_row;
     tail_col = old_tail.next_col;
@@ -195,13 +237,58 @@ void draw() {
   sprintf(score_str, "%05d", score);
   display.print(score_str);
   display.drawRect(0, 5, display.width()-1, display.height()-5, BLACK);
-  draw_snake();
+  draw_snake_and_food();
   draw_connections();
   display.display();
 }
 
+void move_left() {
+  if (snake_direction != RIGHT) {
+    snake_direction = LEFT;
+  }
+}
+
+void move_up() {
+  if (snake_direction != DOWN) {
+    snake_direction = UP;
+  }
+}
+
+void move_right() {
+  if (snake_direction != LEFT) {
+    snake_direction = RIGHT;
+  }
+}
+
+void move_down() {
+  if (snake_direction != UP) {
+    snake_direction = DOWN;
+  }
+}
+
 void setup() {
+  randomSeed(analogRead(A0));
+  
   out_of_board.type = DEATH;
+  
+  get_board_field(head_row, head_col).type = SNAKE;
+  
+  for (int c = head_col - 1; c >= 0; --c) {
+    auto &f = get_board_field(head_row, c);
+    f.type = SNAKE;
+    f.next_row = head_row;
+    f.next_col = c + 1;
+  }
+
+  pinMode(PIN_LEFT, INPUT);
+  pinMode(PIN_UP, INPUT);
+  pinMode(PIN_RIGHT, INPUT);
+  pinMode(PIN_DOWN, INPUT);
+
+  attachInterrupt(digitalPinToInterrupt(PIN_LEFT), move_left, RISING);
+  attachInterrupt(digitalPinToInterrupt(PIN_UP), move_up, RISING);
+  attachInterrupt(digitalPinToInterrupt(PIN_RIGHT), move_right, RISING);
+  attachInterrupt(digitalPinToInterrupt(PIN_DOWN), move_down, RISING);
   
   display.begin();
   display.clearDisplay();
@@ -209,6 +296,7 @@ void setup() {
   display.setContrast(50);
   display.setFont(&Picopixel);
 
+  place_food();
   draw();
 }
 
@@ -216,9 +304,9 @@ void loop() {
   if (!game_over) {
     if (millis() - last_update >= 1000) {
       step();
-      draw();
       last_update = millis();
     }
   }
+  draw();
 }
 
