@@ -26,10 +26,12 @@ Adafruit_PCD8544 display = Adafruit_PCD8544(8, 4, 5, 9, 6);
 #define PIN_DOWN 3
 
 int head_row = 4;
-int head_col = 4;
+int head_col = 2;
 
 int tail_row = head_row;
 int tail_col = 0; // see setup()
+
+int free_board_fields = BOARD_ROWS * BOARD_COLS; // see setup()
 
 enum Direction {
   LEFT,
@@ -44,6 +46,7 @@ volatile Direction proposed_direction = RIGHT;
 unsigned long last_update = 0;
 unsigned int score = 0;
 bool game_over = false;
+bool snake_visible = true;
 
 enum BoardFieldType {
   EMPTY,
@@ -80,13 +83,15 @@ void draw_snake_and_food() {
     for (int col = 0; col < BOARD_COLS; ++col) {
         switch (get_board_field(row, col).type) {
           case SNAKE:
-            display.fillRect(
-              pos_x,
-              pos_y,
-              SNAKE_FRAGMENT_SIZE,
-              SNAKE_FRAGMENT_SIZE,
-              BLACK
-            );
+            if (snake_visible) {
+              display.fillRect(
+                pos_x,
+                pos_y,
+                SNAKE_FRAGMENT_SIZE,
+                SNAKE_FRAGMENT_SIZE,
+                BLACK
+              );
+            }
             break;
           case FOOD:
             display.drawPixel(
@@ -120,6 +125,9 @@ void draw_snake_and_food() {
 void draw_connections() {
   int curr_row = tail_row,
       curr_col = tail_col;
+  if (!snake_visible) {
+    return;
+  }
   while (1) {
     const auto &curr = get_board_field(curr_row, curr_col);
     const auto &next = get_board_field(curr.next_row, curr.next_col);
@@ -167,16 +175,18 @@ void draw_connections() {
 }
 
 void place_food() {
-  do {
-    int food_row = random(0, BOARD_ROWS),
-        food_col = random(0, BOARD_COLS);
-
-    auto &food = get_board_field(food_row, food_col);
-    if (food.type == EMPTY) {
-      food.type = FOOD;
-      break;
-    }
-  } while (1);
+  if (free_board_fields) {
+    do {
+      int food_row = random(0, BOARD_ROWS),
+          food_col = random(0, BOARD_COLS);
+  
+      auto &food = get_board_field(food_row, food_col);
+      if (food.type == EMPTY) {
+        food.type = FOOD;
+        break;
+      }
+    } while (1);
+  }
 }
 
 void step() {
@@ -223,6 +233,7 @@ void step() {
 
   if (grow) {
     place_food();
+    free_board_fields -= 1;
   } else {
     struct BoardField& old_tail = get_board_field(tail_row, tail_col);
     tail_row = old_tail.next_row;
@@ -289,6 +300,8 @@ void setup() {
     f.next_col = c + 1;
   }
 
+  free_board_fields -= head_col + 1; // zero col inclusive
+
   pinMode(PIN_LEFT, INPUT);
   pinMode(PIN_UP, INPUT);
   pinMode(PIN_RIGHT, INPUT);
@@ -307,17 +320,28 @@ void setup() {
 
   place_food();
   draw();
+  
+  last_update = millis();
 }
 
 void loop() {
   if (!game_over) {
-    if (millis() - last_update >= 500) {
+    if (millis() - last_update >= 200) {
       last_update = millis();
       snake_direction = proposed_direction;
       step();
     }
   } else {
-    softReset();
+    static long last_blink_update = 0;
+    static int blink_updates = 0;
+    if (millis() - last_blink_update >= 500) {
+      last_blink_update = millis();
+      snake_visible = !snake_visible;
+      blink_updates += 1;
+      if (blink_updates > 4) {
+        softReset();
+      }
+    }
   }
   draw();
 }
