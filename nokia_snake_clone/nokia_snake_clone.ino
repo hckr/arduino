@@ -6,7 +6,7 @@
 // From original example "pcdtest"
 // Adafruit_PCD8544 display = Adafruit_PCD8544(7, 6, 5, 4, 3);
 
-// Working with my display:
+// My configuration
 Adafruit_PCD8544 display = Adafruit_PCD8544(8, 4, 5, 9, 6);
 
 #define BOARD_MARGIN_LEFT 2
@@ -37,10 +37,11 @@ enum Direction {
   DOWN
 };
 
-volatile Direction snake_direction = RIGHT;
+Direction snake_direction = RIGHT;
+volatile Direction proposed_direction = RIGHT;
 
-int last_update = 0;
-int score = 0;
+unsigned long last_update = 0;
+unsigned int score = 0;
 bool game_over = false;
 
 enum BoardFieldType {
@@ -53,8 +54,8 @@ enum BoardFieldType {
 struct BoardField {
   BoardFieldType type = EMPTY;
   // used only by SNAKE type:
-  int next_row = -1;
-  int next_col = -1;
+  int8_t next_row = -1;
+  int8_t next_col = -1;
 };
 
 struct BoardField board[BOARD_ROWS][BOARD_COLS];
@@ -206,6 +207,8 @@ void step() {
       // no break
     case EMPTY:
       new_head.type = SNAKE;
+      new_head.next_row = -1; // IMPORTANT – solved random crashes
+      new_head.next_col = -1; //
       struct BoardField& old_head = get_board_field(head_row, head_col);
       old_head.next_row = new_row;
       old_head.next_col = new_col;
@@ -227,14 +230,14 @@ void draw() {
   display.clearDisplay();
   display.setCursor(0, 4);
   char timer_str[5];
-  int full_seconds = millis() / 1000,
-      minutes = full_seconds / 60,
-      seconds = full_seconds % 60;
-  sprintf(timer_str, "%02d:%02d", minutes, seconds);
+  long full_seconds = millis() / 1000,
+       minutes = full_seconds / 60,
+       seconds = full_seconds % 60;
+  sprintf(timer_str, "%02ld:%02ld", minutes, seconds);
   display.print(timer_str);
   display.setCursor(display.width()-20, 4);
   char score_str[5];
-  sprintf(score_str, "%05d", score);
+  sprintf(score_str, "%05u", score);
   display.print(score_str);
   display.drawRect(0, 5, display.width()-1, display.height()-5, BLACK);
   draw_snake_and_food();
@@ -244,25 +247,25 @@ void draw() {
 
 void move_left() {
   if (snake_direction != RIGHT) {
-    snake_direction = LEFT;
+    proposed_direction = LEFT;
   }
 }
 
 void move_up() {
   if (snake_direction != DOWN) {
-    snake_direction = UP;
+    proposed_direction = UP;
   }
 }
 
 void move_right() {
   if (snake_direction != LEFT) {
-    snake_direction = RIGHT;
+    proposed_direction = RIGHT;
   }
 }
 
 void move_down() {
   if (snake_direction != UP) {
-    snake_direction = DOWN;
+    proposed_direction = DOWN;
   }
 }
 
@@ -301,12 +304,13 @@ void setup() {
 }
 
 void loop() {
-  if (!game_over) {
-    if (millis() - last_update >= 1000) {
-      step();
+//  if (!game_over) {
+    if (millis() - last_update >= 500) {
       last_update = millis();
+      snake_direction = proposed_direction;
+      step();
     }
-  }
+//  }
   draw();
 }
 
