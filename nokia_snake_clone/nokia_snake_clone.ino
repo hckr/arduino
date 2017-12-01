@@ -2,6 +2,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_PCD8544.h>
 #include <Fonts/Picopixel.h>
+#include "pRNG.h"
 
 // From original example "pcdtest"
 // Adafruit_PCD8544 display = Adafruit_PCD8544(7, 6, 5, 4, 3);
@@ -60,6 +61,10 @@ struct BoardField {
 
 struct BoardField board[BOARD_ROWS][BOARD_COLS];
 struct BoardField out_of_board; // initialized in setup()
+
+void softReset() {
+  asm volatile ("  jmp 0");
+}
 
 struct BoardField& get_board_field(const int &row, const int &col) {
   if (row < 0 || row >= BOARD_ROWS || col < 0 || col >= BOARD_COLS) {
@@ -270,7 +275,8 @@ void move_down() {
 }
 
 void setup() {
-  randomSeed(analogRead(A0));
+  pRNG prng;
+  randomSeed(prng.getRndInt());
   
   out_of_board.type = DEATH;
   
@@ -304,13 +310,15 @@ void setup() {
 }
 
 void loop() {
-//  if (!game_over) {
+  if (!game_over) {
     if (millis() - last_update >= 500) {
       last_update = millis();
       snake_direction = proposed_direction;
       step();
     }
-//  }
+  } else {
+    softReset();
+  }
   draw();
 }
 
